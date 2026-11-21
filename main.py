@@ -1,70 +1,76 @@
-"""Entry program for the news-image-20261121 bounty.
+#!/usr/bin/env python3
+"""Deliver the news-image-20261121 entry to the grader.
 
-The entry image lives in this repository as entry.png: a newspaper
-front page summing up Saturday 21 November 2026 in six panels. This
-program places an exact copy of it where the grader looks, at
-/output/entry.png, so the judge sees precisely the bytes committed
-here.
+The picture itself is committed here as ``entry.png``: a front page for
+Saturday 21 November 2026, drawn from the day's news. This script is the
+whole entry program. It copies that file to the place the grader reads,
+``/output/entry.png``, and then proves the copy is the file it claims to
+be: the same bytes, a PNG of 1024 by 1024, and smaller than the 1 MiB the
+competition allows.
 
-Python 3.13, standard library only; no network access, no arguments.
-Run it locally with:
+It needs nothing but the Python 3.13 standard library, talks to no
+network, and takes no arguments. To try it on this machine:
 
     mkdir -p out && MAKEFUN_OUTPUT_DIR=out python3 main.py
 
-Without MAKEFUN_OUTPUT_DIR it writes to ./output/entry.png instead.
+Leave ``MAKEFUN_OUTPUT_DIR`` unset and it uses ``./output`` instead.
 """
 
 import hashlib
 import os
 import shutil
+import struct
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-IMAGE = HERE / "entry.png"
-OUT_DIR = Path(os.environ.get("MAKEFUN_OUTPUT_DIR") or "output")
-OUT_PATH = OUT_DIR / "entry.png"
+# Where the picture lives, and where the grader expects it.
+SOURCE = Path(__file__).resolve().parent / "entry.png"
+DEST_DIR = Path(os.environ.get("MAKEFUN_OUTPUT_DIR") or "output")
+DEST = DEST_DIR / "entry.png"
 
-# The eight bytes every PNG file starts with.
-PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+# What the competition asks of the picture.
+WANTED_WIDTH = 1024
+WANTED_HEIGHT = 1024
+BYTE_LIMIT = 1024 * 1024
 
-# The competition caps the image at 1 MiB.
-MAX_BYTES = 1024 * 1024
+# A PNG file opens with these eight bytes, then an IHDR chunk whose first
+# eight data bytes are the width and the height, big-endian.
+MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
-def fingerprint(path: Path) -> str:
-    """Return the sha256 hex digest of a file's bytes."""
+def sha256_hex(path: Path) -> str:
+    """Hash a file's bytes and return the digest as hex."""
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def inspect_png(path: Path) -> tuple[int, int]:
-    """Read a PNG header and return its (width, height) in pixels."""
+def png_dimensions(path: Path) -> tuple[int, int]:
+    """Pull the width and height out of a PNG file's IHDR chunk."""
     with path.open("rb") as handle:
         head = handle.read(33)
-    if head[:8] != PNG_SIGNATURE:
-        raise RuntimeError("output is not a PNG file")
+    if head[:8] != MAGIC:
+        raise SystemExit(f"{path}: not a PNG file (bad magic bytes)")
     if head[12:16] != b"IHDR":
-        raise RuntimeError("output has no PNG IHDR chunk")
-    width = int.from_bytes(head[16:20], "big")
-    height = int.from_bytes(head[20:24], "big")
+        raise SystemExit(f"{path}: no IHDR chunk where one belongs")
+    width, height = struct.unpack(">II", head[16:24])
     return width, height
 
 
-def main() -> None:
-    """Copy entry.png to the output directory and prove it matches."""
-    if not IMAGE.is_file():
-        raise RuntimeError(f"entry image missing: {IMAGE}")
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(IMAGE, OUT_PATH)
-    if fingerprint(OUT_PATH) != fingerprint(IMAGE):
-        raise RuntimeError("copied image differs from entry.png")
-    if OUT_PATH.stat().st_size > MAX_BYTES:
-        raise RuntimeError("entry image is over the 1 MiB limit")
-    width, height = inspect_png(OUT_PATH)
-    if (width, height) != (1024, 1024):
-        raise RuntimeError(f"entry image is {width}x{height}, want 1024x1024")
-    # Say what was written, so a run's log shows the entry at a glance.
-    print(f"wrote {width}x{height} PNG ({OUT_PATH.stat().st_size} bytes) to {OUT_PATH}")
+def deliver() -> None:
+    """Copy the entry picture into place and check it every way that matters."""
+    if not SOURCE.is_file():
+        raise SystemExit(f"entry picture is missing: {SOURCE}")
+    DEST_DIR.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(SOURCE, DEST)
+
+    if sha256_hex(DEST) != sha256_hex(SOURCE):
+        raise SystemExit("the copy is not byte-identical to entry.png")
+    size = DEST.stat().st_size
+    if size > BYTE_LIMIT:
+        raise SystemExit(f"the picture is {size} bytes, over the 1 MiB limit")
+    width, height = png_dimensions(DEST)
+    if (width, height) != (WANTED_WIDTH, WANTED_HEIGHT):
+        raise SystemExit(f"the picture is {width}x{height}, want 1024x1024")
+    print(f"delivered {width}x{height} PNG, {size} bytes, to {DEST}")
 
 
 if __name__ == "__main__":
-    main()
+    deliver()
