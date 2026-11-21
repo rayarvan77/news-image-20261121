@@ -62,6 +62,8 @@ def main() -> None:
     width, height = inspect_png(OUT_PATH)
     if (width, height) != (1024, 1024):
         raise RuntimeError(f"entry image is {width}x{height}, want 1024x1024")
+    # Say what was written, so a run's log shows the entry at a glance.
+    print(f"wrote {width}x{height} PNG ({OUT_PATH.stat().st_size} bytes) to {OUT_PATH}")
 
 
 if __name__ == "__main__":
